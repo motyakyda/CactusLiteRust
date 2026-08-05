@@ -627,6 +627,27 @@ class App:
         self._tile_state = {}
         self._catalog_data = {}
 
+        tk.Label(inner, text="ПОИСК МОДОВ НА MODRINTH", font=(FONT, 9, "bold"), fg=FG, bg=BG)\
+            .pack(anchor="w", padx=20, pady=(20, 2))
+        search_row = tk.Frame(inner, bg=BG)
+        search_row.pack(fill="x", padx=20, pady=(2, 0))
+        self._search_var = tk.StringVar()
+        search_entry = tk.Entry(search_row, textvariable=self._search_var, font=(FONT, 9),
+                                 bg=BG3, fg=FG, insertbackground=FG, relief="flat")
+        search_entry.pack(side="left", fill="x", expand=True, ipady=5, ipadx=6)
+        search_entry.bind("<Return>", lambda e: self._search_mods())
+        tk.Button(search_row, text="НАЙТИ", font=(FONT, 9, "bold"), fg="#06130b",
+                  bg=ACCENT, activebackground=ACCENT_DARK, activeforeground="#06130b",
+                  relief="flat", bd=0, cursor="hand2",
+                  command=self._search_mods).pack(side="left", padx=(8, 0), ipadx=10, ipady=5)
+        self._search_status_var = tk.StringVar(value="")
+        tk.Label(inner, textvariable=self._search_status_var, font=(FONT, 8), fg=ACCENT, bg=BG)\
+            .pack(anchor="w", padx=20, pady=(6, 0))
+        self._search_grid = tk.Frame(inner, bg=BG)
+        self._search_grid.pack(fill="x", padx=12, pady=(2, 0))
+        self._search_tile_state = {}
+        self._search_avatars = []
+
         self._installed_header_var = tk.StringVar(value="УСТАНОВЛЕННЫЕ МОДЫ")
         tk.Label(inner, textvariable=self._installed_header_var, font=(FONT, 9, "bold"), fg=FG, bg=BG)\
             .pack(anchor="w", padx=20, pady=(16, 4))
@@ -994,6 +1015,124 @@ class App:
         btn.config(state="normal", text="ГОТОВО", command=self._open_mods_dir)
         self._refresh_installed_mods()
         self._status(f"Мод установлен: {state['name']}")
+
+    def _search_mods(self):
+        query = self._search_var.get().strip()
+        if not query:
+            return
+        if getattr(self, "_search_loading", False):
+            return
+        self._search_loading = True
+        self._search_status_var.set("Поиск...")
+        loader = self.settings.get("loader", "none")
+        loader = loader if loader in ("forge", "fabric", "neoforge") else None
+        threading.Thread(target=self._search_worker, args=(query, loader), daemon=True).start()
+
+    def _search_worker(self, query, loader):
+        try:
+            results = mod_catalog.search_modrinth_mods(query, loader=loader)
+        except Exception:
+            results = []
+        self._search_loading = False
+        self.root.after(0, lambda: self._rebuild_search_results(results))
+
+    def _rebuild_search_results(self, results):
+        for w in self._search_grid.winfo_children():
+            w.destroy()
+        self._search_tile_state = {}
+        self._search_avatars = []
+        if not results:
+            self._search_status_var.set("Ничего не найдено.")
+            return
+        self._search_status_var.set(f"Найдено: {len(results)}")
+        cur_series = mod_catalog.series_of(self._current_version())
+        for i, mod in enumerate(results):
+            tile = tk.Frame(self._search_grid, bg=BG2, highlightthickness=1,
+                            highlightbackground=BG3, width=176, height=168)
+            tile.grid(row=i // 2, column=i % 2, padx=8, pady=(10, 0), sticky="n")
+            tile.grid_propagate(False)
+            tile.pack_propagate(False)
+
+            avatar = tk.Canvas(tile, width=44, height=44, bg=BG2, highlightthickness=0)
+            avatar.pack(pady=(12, 4))
+            photo = self._net_icon_photo(mod.get("icon_url"), self._search_avatars)
+            if photo is not None:
+                avatar.create_image(22, 22, image=photo)
+            else:
+                avatar.create_rectangle(2, 2, 42, 42, fill=mod["color"], outline=mod["color"])
+                avatar.create_text(22, 22, text=(mod["name"][:1] or "?"), fill="#ffffff",
+                                   font=(FONT, 16, "bold"))
+
+            tk.Label(tile, text=mod["name"][:16], font=(FONT, 10, "bold"), fg=FG, bg=BG2).pack()
+            tk.Label(tile, text=mod["note"] or " ", font=(FONT, 7), fg=MUTED, bg=BG2,
+                     wraplength=160, justify="center").pack(pady=(1, 6))
+
+            bottom = tk.Frame(tile, bg=BG2)
+            bottom.pack(fill="x", padx=10, pady=(0, 10))
+            var = tk.StringVar()
+            state = {"button": None, "var": var, "keys": [], "busy": False, "name": mod["name"],
+                     "mod": mod}
+            self._search_tile_state[mod["id"]] = state
+            cb = ttk.Combobox(bottom, textvariable=var, values=[], state="readonly",
+                              font=(FONT, 8), width=9)
+            cb.config(state="disabled")
+            cb.pack(side="left")
+            btn = tk.Button(bottom, text="УСТАНОВИТЬ", font=(FONT, 8, "bold"), fg="#06130b",
+                            bg=ACCENT, activebackground=ACCENT_DARK, activeforeground="#06130b",
+                            relief="flat", bd=0, cursor="hand2", width=9,
+                            command=lambda mid=mod["id"], m=mod: self._install_search_mod(mid, m))
+            btn.pack(side="right")
+            state["button"] = btn
+
+    def _net_icon_photo(self, icon_url, cache_list):
+        if not icon_url:
+            return None
+        try:
+            import base64
+            import io
+            from PIL import Image, ImageTk
+            req = urllib.request.Request(icon_url, headers={"User-Agent": mod_catalog.UA})
+            with urllib.request.urlopen(req, timeout=6) as r:
+                raw = r.read()
+            img = Image.open(io.BytesIO(raw)).convert("RGBA")
+            img = img.resize((44, 44), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+        except Exception:
+            return None
+        cache_list.append(photo)
+        return photo
+
+    def _install_search_mod(self, mod_id, mod):
+        state = self._search_tile_state.get(mod_id)
+        if not state or state.get("busy"):
+            return
+        state["busy"] = True
+        btn = state["button"]
+        btn.config(state="disabled", text="...")
+        threading.Thread(target=self._install_search_mod_worker,
+                         args=(mod_id, mod, state), daemon=True).start()
+
+    def _install_search_mod_worker(self, mod_id, mod, state):
+        err = None
+        dst = None
+        try:
+            versions = mod_catalog.fetch_modrinth_project_versions(mod["project"])
+            series = mod_catalog.series_of(self._current_version())
+            info = versions.get(series)
+            if not info:
+                keys = sorted(versions, key=mod_catalog.version_sort_key, reverse=True)
+                info = versions.get(keys[0]) if keys else None
+            if not info:
+                raise RuntimeError("Нет подходящей версии для этого мода.")
+            mods_dir = self._mods_dir()
+            os.makedirs(mods_dir, exist_ok=True)
+            dst = os.path.join(mods_dir, info["filename"])
+            tmp = os.path.join(mods_dir, ".download_" + uuid.uuid4().hex[:8] + ".part")
+            self._download_stream(info["url"], tmp, state, total=info.get("size"))
+            os.replace(tmp, dst)
+        except Exception as e:
+            err = str(e)
+        self.root.after(0, lambda: self._tile_after_done(state, mod_id, err))
 
     def _list_mods(self):
         d = self._mods_dir()

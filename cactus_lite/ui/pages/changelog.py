@@ -1,43 +1,41 @@
 """«Изменения»: rendered version history."""
 
-import tkinter as tk
+import wx
 
 from cactus_lite.ui import theme
 from cactus_lite.ui.changelog_data import CHANGELOG
 from cactus_lite.ui.pages.base import Page
-from cactus_lite.ui.theme import ACCENT, BG, BG2, BG3, FG, MUTED
+from cactus_lite.ui.theme import ACCENT, FG, MUTED
+from cactus_lite.ui.widgets import ScrollFrame
+
+PAD = 20
 
 
 class ChangelogPage(Page):
     name = "changelog"
 
     def build(self):
-        theme.section_label(self, "ИЗМЕНЕНИЯ").pack(anchor="w", padx=20, pady=(20, 8))
+        self.sizer.AddSpacer(20)
+        self.sizer.Add(theme.section_label(self, "ИЗМЕНЕНИЯ"), 0, wx.LEFT | wx.RIGHT, PAD)
+        self.sizer.AddSpacer(8)
 
-        wrap = tk.Frame(self, bg=BG)
-        wrap.pack(fill="both", expand=True, padx=(20, 12), pady=(0, 16))
-        text = tk.Text(wrap, bg=BG, fg=FG, font=theme.font(9), relief="flat", bd=0, wrap="word",
-                       state="disabled", cursor="arrow")
-        scrollbar = tk.Scrollbar(wrap, command=text.yview, bg=BG2, activebackground=BG3,
-                                 troughcolor=BG, bd=0, highlightthickness=0)
-        text.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        text.pack(side="left", fill="both", expand=True)
-
-        text.tag_configure("ver", foreground=ACCENT, font=theme.font(12, "bold"))
-        text.tag_configure("sub", foreground=MUTED, font=theme.font(9, "bold"))
-        text.tag_configure("item", foreground=FG, lmargin1=14, lmargin2=14)
-        text.tag_configure("gap", font=theme.font(4))
-
-        text.config(state="normal")
+        scroll = ScrollFrame(self)
+        body = scroll.sizer
         for entry in CHANGELOG:
-            text.insert("end", entry["version"] + "\n", "ver")
-            for title, items in (("Исправления", entry["fixes"]), ("Добавлено", entry["features"])):
+            body.Add(theme.label(scroll, entry["version"], size=12, weight="bold", fg=ACCENT),
+                     0, wx.LEFT | wx.RIGHT | wx.TOP, PAD)
+            for title, items in (("Исправления", entry["fixes"]),
+                                 ("Добавлено", entry["features"])):
                 if not items:
                     continue
-                text.insert("end", title + "\n", "sub")
+                body.AddSpacer(4)
+                body.Add(theme.label(scroll, title, size=9, weight="bold", fg=MUTED),
+                         0, wx.LEFT | wx.RIGHT, PAD)
                 for item in items:
-                    text.insert("end", "• " + item + "\n", "item")
-            text.insert("end", "\n", "gap")
-        text.config(state="disabled")
-        theme.bind_wheel(text)
+                    body.AddSpacer(2)
+                    body.Add(theme.label(scroll, "• " + item, size=9, fg=FG,
+                                         wrap=theme.AUTO_WRAP),
+                             0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD + 12)
+            body.AddSpacer(12)
+        scroll.relayout()
+        self.sizer.Add(scroll, 1, wx.EXPAND | wx.BOTTOM, 16)

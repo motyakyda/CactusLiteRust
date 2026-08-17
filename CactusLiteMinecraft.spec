@@ -15,9 +15,9 @@ a = Analysis(
     hiddenimports=[
         'cactus_lite',
         'minecraft_launcher_lib',
-        'tkinterdnd2',
+        'wx',
+        'wx.adv',
         'PIL.Image',
-        'PIL.ImageTk',
     ],
     hookspath=[],
     hooksconfig={},

@@ -4,84 +4,98 @@ The password is only held in the entry widget for the duration of the request:
 Ely.by returns tokens, and only tokens are saved to disk.
 """
 
-import tkinter as tk
 import webbrowser
+
+import wx
 
 from cactus_lite.auth import elyby
 from cactus_lite.ui import theme
 from cactus_lite.ui.dialogs.base import Dialog
-from cactus_lite.ui.theme import ACCENT, BG, FG, MUTED
+from cactus_lite.ui.theme import ACCENT, DANGER, FG, MUTED
 
 REGISTER_URL = "https://account.ely.by/register"
-INTRO = ("Войдите в аккаунт Ely.by, чтобы играть с ником, скином и плащом\n"
-         "на серверах с online-mode. Пароль не сохраняется — лаунчер хранит\n"
+INTRO = ("Войдите в аккаунт Ely.by, чтобы играть с ником, скином и плащом "
+         "на серверах с online-mode. Пароль не сохраняется — лаунчер хранит "
          "только токен доступа.")
+PAD = 18
 
 
 class AccountDialog(Dialog):
     title = "Вход через Ely.by"
-    size = (430, 400)
+    size = (440, 470)
 
     def build(self):
-        win = self.win
         self._busy = False
         self._client_token = elyby.new_client_token()
+        box = self.sizer
 
-        theme.section_label(win, "ELY.BY").pack(anchor="w", padx=18, pady=(18, 4))
-        theme.hint_label(win, INTRO, wraplength=380).pack(anchor="w", padx=18)
+        box.AddSpacer(PAD)
+        box.Add(theme.section_label(self, "ELY.BY"), 0, wx.LEFT | wx.RIGHT, PAD)
+        box.AddSpacer(4)
+        box.Add(theme.hint_label(self, INTRO, wrap=380), 0, wx.LEFT | wx.RIGHT, PAD)
 
-        self.login_var = tk.StringVar()
-        self.password_var = tk.StringVar()
-        self.totp_var = tk.StringVar()
+        box.AddSpacer(14)
+        box.Add(theme.section_label(self, "E-mail или ник"), 0, wx.LEFT | wx.RIGHT, PAD)
+        box.AddSpacer(4)
+        self.login_field = theme.entry(self, size=11, on_enter=self._submit)
+        box.Add(self.login_field, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
 
-        theme.section_label(win, "E-mail или ник").pack(anchor="w", padx=18, pady=(14, 4))
-        login_entry = theme.entry(win, self.login_var, size=11)
-        login_entry.pack(fill="x", padx=18, ipady=6)
+        box.AddSpacer(10)
+        box.Add(theme.section_label(self, "Пароль"), 0, wx.LEFT | wx.RIGHT, PAD)
+        box.AddSpacer(4)
+        self.password_field = theme.entry(self, size=11, password=True, on_enter=self._submit)
+        box.Add(self.password_field, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
 
-        theme.section_label(win, "Пароль").pack(anchor="w", padx=18, pady=(10, 4))
-        password_entry = theme.entry(win, self.password_var, size=11, show="•")
-        password_entry.pack(fill="x", padx=18, ipady=6)
-        password_entry.bind("<Return>", lambda e: self._submit())
+        box.AddSpacer(10)
+        self.totp_label = theme.section_label(self, "Код двухфакторной аутентификации")
+        box.Add(self.totp_label, 0, wx.LEFT | wx.RIGHT, PAD)
+        box.AddSpacer(4)
+        self.totp_field = theme.entry(self, size=11, on_enter=self._submit)
+        box.Add(self.totp_field, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
+        self._totp_slots = tuple(range(box.GetItemCount() - 4, box.GetItemCount()))
+        for slot in self._totp_slots:
+            box.Show(slot, False)
 
-        self.totp_label = theme.section_label(win, "Код двухфакторной аутентификации")
-        self.totp_entry = theme.entry(win, self.totp_var, size=11)
-        self.totp_entry.bind("<Return>", lambda e: self._submit())
+        box.AddSpacer(10)
+        self.status = theme.label(self, "", size=9, fg=ACCENT, wrap=380)
+        box.Add(self.status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
 
-        self.status_var = tk.StringVar()
-        self.status = tk.Label(win, textvariable=self.status_var, font=theme.font(9), fg=ACCENT,
-                               bg=BG, anchor="w", justify="left", wraplength=380)
-        self.status.pack(fill="x", padx=18, pady=(10, 0))
+        box.AddSpacer(10)
+        self.submit_btn = theme.primary_button(self, "ВОЙТИ", self._submit, padding=(18, 11))
+        box.Add(self.submit_btn, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
+        box.AddSpacer(10)
+        box.Add(theme.ghost_button(self, "Создать аккаунт на ely.by",
+                                   lambda: webbrowser.open(REGISTER_URL), size=9,
+                                   fg=MUTED, active_fg=FG), 0, wx.LEFT | wx.RIGHT, PAD)
+        box.AddSpacer(PAD)
 
-        self.submit_btn = theme.primary_button(win, "ВОЙТИ", self._submit)
-        self.submit_btn.pack(fill="x", padx=18, ipady=8, pady=(10, 0))
-        theme.ghost_button(win, "Создать аккаунт на ely.by",
-                          lambda: webbrowser.open(REGISTER_URL), size=9, fg=MUTED, active_fg=FG)\
-            .pack(anchor="w", padx=18, pady=(10, 0), ipadx=8, ipady=4)
-
-        login_entry.focus_set()
+        self.login_field.SetFocus()
 
     def _show_totp(self):
-        if not self.totp_label.winfo_ismapped():
-            self.totp_label.pack(anchor="w", padx=18, pady=(10, 4), before=self.status)
-            self.totp_entry.pack(fill="x", padx=18, ipady=6, before=self.status)
-        self.totp_entry.focus_set()
+        for slot in self._totp_slots:
+            self.sizer.Show(slot, True)
+        self.Layout()
+        self.totp_field.SetFocus()
+
+    def _set_status(self, text, colour=ACCENT):
+        self.status.SetForegroundColour(wx.Colour(colour))
+        self.status.set_text(text)
+        self.Layout()
 
     def _set_busy(self, busy, message=""):
         self._busy = busy
-        self.submit_btn.config(state="disabled" if busy else "normal",
-                               text="ВХОД..." if busy else "ВОЙТИ")
-        self.status.config(fg=ACCENT)
-        self.status_var.set(message)
+        self.submit_btn.set_label("ВХОД..." if busy else "ВОЙТИ")
+        self.submit_btn.Enable(not busy)
+        self._set_status(message)
 
     def _submit(self):
         if self._busy:
             return
-        login = self.login_var.get().strip()
-        password = self.password_var.get()
-        totp = self.totp_var.get().strip()
+        login = self.login_field.GetValue().strip()
+        password = self.password_field.GetValue()
+        totp = self.totp_field.GetValue().strip()
         if not login or not password:
-            self.status.config(fg="#f2b8b3")
-            self.status_var.set("Введите логин и пароль.")
+            self._set_status("Введите логин и пароль.", DANGER)
             return
         self._set_busy(True, "Проверяю данные...")
 
@@ -96,15 +110,13 @@ class AccountDialog(Dialog):
             return
         if isinstance(error, elyby.TwoFactorRequired):
             self._set_busy(False)
-            self.status.config(fg=FG)
-            self.status_var.set("Введите код из приложения аутентификации.")
+            self._set_status("Введите код из приложения аутентификации.", FG)
             self._show_totp()
             return
         if error:
             self._set_busy(False)
-            self.status.config(fg="#f2b8b3")
-            self.status_var.set(str(error))
+            self._set_status(str(error), DANGER)
             return
-        self.password_var.set("")
+        self.password_field.SetValue("")
         self.close()
         self.app.add_account(profile)

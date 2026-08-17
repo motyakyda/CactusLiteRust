@@ -1,22 +1,24 @@
 """«Моды»: manual upload, pinned catalog, Modrinth search, installed list."""
 
 import os
-import tkinter as tk
-from tkinter import filedialog, messagebox
 
-from cactus_lite.core.paths import APP_NAME, APP_VERSION
+import wx
+
+from cactus_lite.core.paths import APP_VERSION
 from cactus_lite.core.platform_utils import open_path
 from cactus_lite.mods import catalog, installer
-from cactus_lite.ui import theme
+from cactus_lite.ui import messages, theme
 from cactus_lite.ui.pages.base import Page
 from cactus_lite.ui.theme import ACCENT, BG, BG3, DANGER, DANGER_ACTIVE, FG, MUTED
 from cactus_lite.ui.widgets import DropZone, ModTile, ScrollFrame
 
 TILE_COLUMNS = 2
+PAD = 20
 CATALOG_HINT = ("Sodium — нужен Fabric. OptiFine — для Forge или ванили.\n"
                 "Скачанный мод автоматически попадёт в папку mods.")
 MANUAL_HINT = ("Мы не ручаемся за ошибки при таком переносе, если мод не подойдёт\n"
                "под подсистему модов или если он скачан не на ту версию.")
+MOD_WILDCARD = "Файлы модов (*.jar;*.zip)|*.jar;*.zip|Все файлы (*.*)|*.*"
 
 
 def _mb(done, total):
@@ -42,77 +44,99 @@ class ModsPage(Page):
         self._search_loading = False
         self._catalog_tiles = {}
         self._search_tiles = {}
-        self._search_results = []
 
-        theme.section_label(self, "МОДЫ").pack(anchor="w", padx=20, pady=(20, 10))
+        self.sizer.AddSpacer(20)
+        self.sizer.Add(theme.section_label(self, "МОДЫ"), 0, wx.LEFT | wx.RIGHT, PAD)
+        self.sizer.AddSpacer(10)
         self._build_empty_state()
         self._build_content()
+        self.sizer.Add(self.empty, 1, wx.EXPAND)
+        self.sizer.Add(self.content, 1, wx.EXPAND)
+        self._empty_slot = self.sizer.GetItemCount() - 2
+        self._content_slot = self.sizer.GetItemCount() - 1
 
     # --- layout -------------------------------------------------------------
 
     def _build_empty_state(self):
-        self.empty = tk.Frame(self, bg=BG)
-        tk.Label(self.empty, text="Нет подсистемы модов", font=theme.font(13, "bold"),
-                 fg=FG, bg=BG).pack(pady=(90, 6))
-        theme.hint_label(self.empty,
-                         "Выберите Forge, Fabric или NeoForge в «Дополнительных»,\n"
-                         "чтобы устанавливать моды.", justify="center", size=9).pack()
-        theme.ghost_button(self.empty, "Открыть «Дополнительные»",
-                           lambda: self.app.show_page("extra"))\
-            .pack(pady=(16, 0), ipadx=10, ipady=5)
+        self.empty = theme.panel(self, BG)
+        box = wx.BoxSizer(wx.VERTICAL)
+        self.empty.SetSizer(box)
+        box.AddSpacer(80)
+        box.Add(theme.label(self.empty, "Нет подсистемы модов", size=13, weight="bold", fg=FG),
+                0, wx.ALIGN_CENTER)
+        box.AddSpacer(6)
+        box.Add(theme.hint_label(self.empty,
+                                 "Выберите Forge, Fabric или NeoForge в «Дополнительных»,\n"
+                                 "чтобы устанавливать моды.", size=9), 0, wx.ALIGN_CENTER)
+        box.AddSpacer(16)
+        box.Add(theme.ghost_button(self.empty, "Открыть «Дополнительные»",
+                                   lambda: self.app.show_page("extra")), 0, wx.ALIGN_CENTER)
+        box.AddStretchSpacer()
 
     def _build_content(self):
         self.content = ScrollFrame(self)
-        body = self.content.body
+        body = self.content.sizer
+        host = self.content
 
-        self.upload_status_var = tk.StringVar()
-        self.upload_hint_var = tk.StringVar()
-        self.drop_zone = DropZone(body, self._add_local_mods, self.upload_status_var,
-                                  self.upload_hint_var)
-        self.drop_zone.pack(fill="x", padx=20, pady=(14, 0))
-        theme.hint_label(body, MANUAL_HINT, justify="center").pack(pady=(12, 0))
+        self.drop_zone = DropZone(host, self._add_local_mods)
+        body.AddSpacer(14)
+        body.Add(self.drop_zone, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(12)
+        body.Add(theme.hint_label(host, MANUAL_HINT), 0, wx.ALIGN_CENTER)
 
-        self.catalog_state_var = tk.StringVar(value="Каталог загружается...")
-        theme.section_label(body, "КАТАЛОГ МОДОВ", fg=FG, weight="bold")\
-            .pack(anchor="w", padx=20, pady=(20, 2))
-        theme.hint_label(body, CATALOG_HINT).pack(anchor="w", padx=20)
-        tk.Label(body, textvariable=self.catalog_state_var, font=theme.font(8), fg=ACCENT, bg=BG)\
-            .pack(anchor="w", padx=20, pady=(6, 0))
-        self.catalog_grid = tk.Frame(body, bg=BG)
-        self.catalog_grid.pack(fill="x", padx=12, pady=(2, 0))
+        body.AddSpacer(20)
+        body.Add(theme.section_label(host, "КАТАЛОГ МОДОВ", fg=FG, weight="bold"), 0,
+                 wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(2)
+        body.Add(theme.hint_label(host, CATALOG_HINT), 0, wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(6)
+        self.catalog_state = theme.label(host, "Каталог загружается...", size=8, fg=ACCENT)
+        body.Add(self.catalog_state, 0, wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(2)
+        self.catalog_grid = wx.GridSizer(TILE_COLUMNS, 10, 10)
+        body.Add(self.catalog_grid, 0, wx.LEFT | wx.RIGHT, PAD - 8)
 
-        theme.section_label(body, "ПОИСК МОДОВ НА MODRINTH", fg=FG, weight="bold")\
-            .pack(anchor="w", padx=20, pady=(20, 2))
-        search_row = tk.Frame(body, bg=BG)
-        search_row.pack(fill="x", padx=20, pady=(2, 0))
-        self.search_var = tk.StringVar()
-        search_entry = theme.entry(search_row, self.search_var, size=9, bg=BG3)
-        search_entry.pack(side="left", fill="x", expand=True, ipady=5, ipadx=6)
-        search_entry.bind("<Return>", lambda e: self._search())
-        theme.primary_button(search_row, "НАЙТИ", self._search, size=9)\
-            .pack(side="left", padx=(8, 0), ipadx=10, ipady=5)
-        self.search_status_var = tk.StringVar()
-        tk.Label(body, textvariable=self.search_status_var, font=theme.font(8), fg=ACCENT, bg=BG)\
-            .pack(anchor="w", padx=20, pady=(6, 0))
-        self.search_grid = tk.Frame(body, bg=BG)
-        self.search_grid.pack(fill="x", padx=12, pady=(2, 0))
+        body.AddSpacer(20)
+        body.Add(theme.section_label(host, "ПОИСК МОДОВ НА MODRINTH", fg=FG, weight="bold"), 0,
+                 wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(4)
+        search_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.search_field = theme.entry(host, size=9, bg=BG3, on_enter=self._search)
+        search_row.Add(self.search_field, 1, wx.ALIGN_CENTER_VERTICAL)
+        search_row.AddSpacer(8)
+        search_row.Add(theme.primary_button(host, "НАЙТИ", self._search, size=9), 0,
+                       wx.ALIGN_CENTER_VERTICAL)
+        body.Add(search_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(6)
+        self.search_state = theme.label(host, "", size=8, fg=ACCENT)
+        body.Add(self.search_state, 0, wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(2)
+        self.search_grid = wx.GridSizer(TILE_COLUMNS, 10, 10)
+        body.Add(self.search_grid, 0, wx.LEFT | wx.RIGHT, PAD - 8)
 
-        self.installed_header_var = tk.StringVar(value="УСТАНОВЛЕННЫЕ МОДЫ")
-        tk.Label(body, textvariable=self.installed_header_var, font=theme.font(9, "bold"),
-                 fg=FG, bg=BG).pack(anchor="w", padx=20, pady=(16, 4))
-        self.installed_list = tk.Frame(body, bg=BG)
-        self.installed_list.pack(fill="x", padx=20)
-        theme.ghost_button(body, "Открыть папку mods", self._open_mods_dir, size=9)\
-            .pack(anchor="w", padx=20, pady=(10, 0), ipadx=8, ipady=4)
-        theme.hint_label(body, f"by cactunus {APP_VERSION}", justify="center").pack(pady=(12, 12))
+        body.AddSpacer(16)
+        self.installed_header = theme.label(host, "УСТАНОВЛЕННЫЕ МОДЫ", size=9, weight="bold",
+                                            fg=FG)
+        body.Add(self.installed_header, 0, wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(4)
+        self.installed_sizer = wx.BoxSizer(wx.VERTICAL)
+        body.Add(self.installed_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(10)
+        body.Add(theme.ghost_button(host, "Открыть папку mods", self._open_mods_dir, size=9), 0,
+                 wx.LEFT | wx.RIGHT, PAD)
+        body.AddSpacer(12)
+        body.Add(theme.hint_label(host, f"by cactunus {APP_VERSION}"), 0, wx.ALIGN_CENTER)
+        body.AddSpacer(12)
+
+        self.drop_zone.set_hint("Перетащите сюда файл мода (например, .jar)")
 
     def on_show(self):
-        if self.app.settings["loader"] == "none":
-            self.content.pack_forget()
-            self.empty.pack(fill="both", expand=True)
+        loader_off = self.app.settings["loader"] == "none"
+        self.sizer.Show(self._empty_slot, loader_off)
+        self.sizer.Show(self._content_slot, not loader_off)
+        self.Layout()
+        if loader_off:
             return
-        self.empty.pack_forget()
-        self.content.pack(fill="both", expand=True)
         self.refresh_installed()
         self._load_catalog()
 
@@ -123,36 +147,33 @@ class ModsPage(Page):
 
     def _add_local_mods(self, paths):
         if paths is None:
-            paths = filedialog.askopenfilenames(
-                title="Выберите моды",
-                filetypes=[("Файлы модов", "*.jar *.zip"), ("Все файлы", "*.*")])
+            paths = messages.open_file("Выберите моды", MOD_WILDCARD, multiple=True)
         for path in paths or []:
             self._add_local_mod(path)
 
     def _add_local_mod(self, src):
         name = os.path.basename(src)
         if os.path.isdir(src):
-            messagebox.showinfo(APP_NAME, "Перетащите файл мода, а не папку.")
+            messages.info("Перетащите файл мода, а не папку.")
             return
         if os.path.splitext(src)[1].lower() not in installer.MOD_EXTENSIONS:
-            messagebox.showwarning(APP_NAME,
-                                   "Моды обычно бывают файлами .jar.\nВыберите файл .jar или .zip.")
+            messages.warning("Моды обычно бывают файлами .jar.\nВыберите файл .jar или .zip.")
             return
         directory = self.mods_dir()
-        if os.path.isfile(os.path.join(directory, name)) and not messagebox.askyesno(
-                APP_NAME, f"«{name}» уже есть в папке модов.\nЗаменить его?"):
+        if os.path.isfile(os.path.join(directory, name)) and not messages.ask_yes_no(
+                f"«{name}» уже есть в папке модов.\nЗаменить его?"):
             return
-        self.upload_status_var.set("Мод загружается в папку...")
+        self.drop_zone.set_status("Мод загружается в папку...")
 
         def work():
             installer.copy_local_mod(src, directory)
 
         def done(_result, error):
             if error:
-                self.upload_status_var.set("Ошибка загрузки мода.")
-                messagebox.showerror(APP_NAME, f"Не удалось скопировать файл:\n{error}")
+                self.drop_zone.set_status("Ошибка загрузки мода.")
+                messages.error(f"Не удалось скопировать файл:\n{error}")
                 return
-            self.upload_status_var.set(f"Мод загружен: {name}")
+            self.drop_zone.set_status(f"Мод загружен: {name}")
             self.app.status(f"Мод загружен: {name}")
             self.refresh_installed()
 
@@ -169,7 +190,7 @@ class ModsPage(Page):
             self._rebuild_catalog()
             return
         self._catalog_loading = True
-        self.catalog_state_var.set("Каталог загружается...")
+        self._set_catalog_state("Каталог загружается...")
 
         def work():
             data = catalog.fetch_catalog()
@@ -179,16 +200,19 @@ class ModsPage(Page):
         def done(data, error):
             self._catalog_loading = False
             if error:
-                self.catalog_state_var.set("Не удалось загрузить каталог. Проверьте интернет.")
+                self._set_catalog_state("Не удалось загрузить каталог. Проверьте интернет.")
                 return
             self._catalog_data = data
             self._rebuild_catalog()
 
         self.app.run_async(work, done)
 
+    def _set_catalog_state(self, text):
+        self.catalog_state.SetLabel(text)
+        self.content.relayout()
+
     def _rebuild_catalog(self):
-        for widget in self.catalog_grid.winfo_children():
-            widget.destroy()
+        self.catalog_grid.Clear(delete_windows=True)
         self._catalog_tiles = {}
         current_series = catalog.series_of(self.app.current_version())
         shown = 0
@@ -201,31 +225,30 @@ class ModsPage(Page):
                       for k in keys]
             selected = next((labels[i] for i, k in enumerate(keys)
                              if catalog.matches_series(k, current_series)), None)
-            tile = ModTile(self.catalog_grid, mod, self.app.images.mod_icon(mod.get("icon_key")),
+            tile = ModTile(self.content, mod, self.app.images.mod_icon(mod.get("icon_key")),
                            lambda mid=mod["id"]: self._install_catalog_mod(mid),
                            values=labels, selected=selected)
-            tile.grid(row=shown // TILE_COLUMNS, column=shown % TILE_COLUMNS, padx=8,
-                      pady=(10, 0), sticky="n")
             tile.keys = keys
+            self.catalog_grid.Add(tile, 0, wx.ALIGN_TOP)
             self._catalog_tiles[mod["id"]] = tile
             shown += 1
-        self.catalog_state_var.set("" if shown else "Каталог пуст или не загрузился.")
+        self._set_catalog_state("" if shown else "Каталог пуст или не загрузился.")
 
     def _install_catalog_mod(self, mod_id):
         tile = self._catalog_tiles.get(mod_id)
         if tile is None:
             return
-        label = tile.var.get()
+        label = tile.selected_label()
         if not label:
-            messagebox.showinfo(APP_NAME, "Для этой версии мод недоступен.")
+            messages.info("Для этой версии мод недоступен.")
             return
         series = label.split(" (")[0]
         info = (self._catalog_data.get(mod_id) or {}).get(series)
         if not info:
             return
         dst = installer.target_path(mod_id, info, self.mods_dir())
-        if os.path.isfile(dst) and not messagebox.askyesno(
-                APP_NAME, f"«{os.path.basename(dst)}» уже есть в папке модов.\nЗаменить его?"):
+        if os.path.isfile(dst) and not messages.ask_yes_no(
+                f"«{os.path.basename(dst)}» уже есть в папке модов.\nЗаменить его?"):
             return
         tile.busy("0.0 МБ")
 
@@ -241,11 +264,11 @@ class ModsPage(Page):
     # --- search -------------------------------------------------------------
 
     def _search(self):
-        query = self.search_var.get().strip()
+        query = self.search_field.GetValue().strip()
         if not query or self._search_loading:
             return
         self._search_loading = True
-        self.search_status_var.set("Поиск...")
+        self._set_search_state("Поиск...")
         loader = self.app.settings["loader"]
         loader = loader if loader != "none" else None
 
@@ -258,20 +281,23 @@ class ModsPage(Page):
 
         self.app.run_async(work, done)
 
+    def _set_search_state(self, text):
+        self.search_state.SetLabel(text)
+        self.content.relayout()
+
     def _rebuild_search(self, results):
-        for widget in self.search_grid.winfo_children():
-            widget.destroy()
+        self.search_grid.Clear(delete_windows=True)
         self._search_tiles = {}
         if not results:
-            self.search_status_var.set("Ничего не найдено.")
+            self._set_search_state("Ничего не найдено.")
             return
-        self.search_status_var.set(f"Найдено: {len(results)}")
-        for i, mod in enumerate(results):
-            tile = ModTile(self.search_grid, mod, self.app.images.remote_icon(mod.get("icon_url")),
+        for mod in results:
+            tile = ModTile(self.content, mod,
+                           self.app.images.remote_icon(mod.get("icon_url")),
                            lambda m=mod: self._install_search_mod(m))
-            tile.grid(row=i // TILE_COLUMNS, column=i % TILE_COLUMNS, padx=8, pady=(10, 0),
-                      sticky="n")
+            self.search_grid.Add(tile, 0, wx.ALIGN_TOP)
             self._search_tiles[mod["id"]] = tile
+        self._set_search_state(f"Найдено: {len(results)}")
 
     def _install_search_mod(self, mod):
         tile = self._search_tiles.get(mod["id"])
@@ -291,7 +317,7 @@ class ModsPage(Page):
     def _tile_done(self, tile, error):
         if error:
             tile.reset()
-            messagebox.showerror(APP_NAME, f"Ошибка установки:\n{error}")
+            messages.error(f"Ошибка установки:\n{error}")
             return
         tile.done(self._open_mods_dir)
         self.refresh_installed()
@@ -300,32 +326,36 @@ class ModsPage(Page):
     # --- installed ----------------------------------------------------------
 
     def refresh_installed(self):
-        for widget in self.installed_list.winfo_children():
-            widget.destroy()
+        self.installed_sizer.Clear(delete_windows=True)
         directory = self.mods_dir()
         mods = installer.list_mods(directory)
-        self.installed_header_var.set(f"УСТАНОВЛЕННЫЕ МОДЫ ({len(mods)})")
+        self.installed_header.SetLabel(f"УСТАНОВЛЕННЫЕ МОДЫ ({len(mods)})")
+        host = self.content
         if not mods:
-            tk.Label(self.installed_list, text="Пока пусто — моды появятся здесь после установки.",
-                     font=theme.font(9), fg=MUTED, bg=BG, anchor="w").pack(fill="x", pady=(2, 0))
+            self.installed_sizer.Add(
+                theme.label(host, "Пока пусто — моды появятся здесь после установки.",
+                            size=9, fg=MUTED), 0, wx.TOP, 2)
+            self.content.relayout()
             return
         for name in mods:
-            row = tk.Frame(self.installed_list, bg=BG)
-            row.pack(fill="x", pady=3)
             path = os.path.join(directory, name)
             size = _fmt_size(os.path.getsize(path)) if os.path.isfile(path) else ""
-            tk.Label(row, text=name + (f"  ({size})" if size else ""), font=theme.font(9),
-                     fg=FG, bg=BG, anchor="w").pack(side="left", fill="x", expand=True)
-            theme.ghost_button(row, "Удалить", lambda n=name: self._remove(n), size=8,
-                               fg=DANGER, active_fg=DANGER_ACTIVE).pack(side="right")
+            row = wx.BoxSizer(wx.HORIZONTAL)
+            row.Add(theme.label(host, name + (f"  ({size})" if size else ""), size=9, fg=FG),
+                    1, wx.ALIGN_CENTER_VERTICAL)
+            row.Add(theme.link_button(host, "Удалить", lambda n=name: self._remove(n), size=8,
+                                      fg=DANGER, active_fg=DANGER_ACTIVE), 0,
+                    wx.ALIGN_CENTER_VERTICAL)
+            self.installed_sizer.Add(row, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 3)
+        self.content.relayout()
 
     def _remove(self, name):
-        if not messagebox.askyesno(APP_NAME, f"Удалить мод «{name}»?"):
+        if not messages.ask_yes_no(f"Удалить мод «{name}»?"):
             return
         try:
             installer.remove_mod(self.mods_dir(), name)
         except Exception as e:
-            messagebox.showerror(APP_NAME, f"Не удалось удалить:\n{e}")
+            messages.error(f"Не удалось удалить:\n{e}")
             return
         self.refresh_installed()
         self.app.status(f"Мод удалён: {name}")
@@ -336,4 +366,4 @@ class ModsPage(Page):
             os.makedirs(directory, exist_ok=True)
             open_path(directory)
         except Exception as e:
-            messagebox.showerror(APP_NAME, str(e))
+            messages.error(str(e))

@@ -1,42 +1,47 @@
 """Modal dialog base: centered, transient, dark themed."""
 
-import tkinter as tk
+import wx
 
 from cactus_lite.ui.theme import BG
 
 
-class Dialog:
+class Dialog(wx.Dialog):
+    """Base for the launcher's own dialogs. Subclasses implement `build`."""
+
     title = ""
     size = (420, 330)
 
     def __init__(self, app):
+        super().__init__(app.frame, title=self.title, size=wx.Size(*self.size),
+                        style=wx.DEFAULT_DIALOG_STYLE)
         self.app = app
-        self.win = None
+        self._alive = True
+        self.SetBackgroundColour(wx.Colour(BG))
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+        self.SetSizer(self.sizer)
+        self.Bind(wx.EVT_CHAR_HOOK, self._on_char)
+        self.Bind(wx.EVT_CLOSE, lambda e: self.close())
 
     def show(self):
-        root = self.app.root
-        self.win = tk.Toplevel(root)
-        self.win.title(self.title)
-        self.win.configure(bg=BG)
-        self.win.transient(root)
-        self.win.resizable(False, False)
-        width, height = self.size
-        self.win.geometry(f"{width}x{height}")
-        self.win.update_idletasks()
-        x = root.winfo_rootx() + (root.winfo_width() - width) // 2
-        y = root.winfo_rooty() + (root.winfo_height() - height) // 2
-        self.win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
-        self.win.bind("<Escape>", lambda e: self.close())
         self.build()
-        return self.win
+        self.Layout()
+        self.CentreOnParent()
+        self.Show()
+        return self
 
     def build(self):
         raise NotImplementedError
 
     def close(self):
-        if self.win is not None:
-            self.win.destroy()
-            self.win = None
+        if self._alive:
+            self._alive = False
+            self.Destroy()
 
     def alive(self):
-        return self.win is not None and self.win.winfo_exists()
+        return self._alive and bool(self)
+
+    def _on_char(self, event):
+        if event.GetKeyCode() == wx.WXK_ESCAPE:
+            self.close()
+            return
+        event.Skip()

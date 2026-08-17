@@ -1,41 +1,49 @@
 """Version installation dialog."""
 
-import tkinter as tk
+import wx
 
 from cactus_lite.minecraft.versions import available_versions, sort_key
 from cactus_lite.ui import theme
 from cactus_lite.ui.dialogs.base import Dialog
-from cactus_lite.ui.theme import BG, BG2, FG, MUTED
+from cactus_lite.ui.theme import BG, FG, MUTED
+
+PAD = 18
 
 
 class InstallVersionDialog(Dialog):
     title = "Установка версии"
-    size = (420, 330)
+    size = (430, 300)
 
     def build(self):
-        win = self.win
         self._all = []
         self._ids = []
+        box = self.sizer
 
-        theme.section_label(win, "Версия").pack(anchor="w", padx=18, pady=(18, 5))
-        self.var = tk.StringVar()
-        self.combo = theme.combobox(win, self.var)
-        self.combo.pack(fill="x", padx=18, ipady=4)
+        box.AddSpacer(PAD)
+        box.Add(theme.section_label(self, "Версия"), 0, wx.LEFT | wx.RIGHT, PAD)
+        box.AddSpacer(5)
+        self.combo = theme.dropdown(self)
+        box.Add(self.combo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
 
-        self.only_release = tk.BooleanVar(value=True)
-        tk.Checkbutton(win, text="только стабильные релизы", variable=self.only_release, bg=BG,
-                       fg=FG, activebackground=BG, activeforeground=FG, selectcolor=BG2,
-                       font=theme.font(9), cursor="hand2")\
-            .pack(anchor="w", padx=18, pady=(10, 0))
-        self.only_release.trace_add("write", lambda *a: self._apply_filter())
+        box.AddSpacer(12)
+        self.only_release = wx.CheckBox(self, label="только стабильные релизы")
+        self.only_release.SetValue(True)
+        self.only_release.SetFont(theme.font(9))
+        self.only_release.SetForegroundColour(wx.Colour(FG))
+        self.only_release.SetBackgroundColour(wx.Colour(BG))
+        self.only_release.Bind(wx.EVT_CHECKBOX, lambda e: self._apply_filter())
+        box.Add(self.only_release, 0, wx.LEFT | wx.RIGHT, PAD)
 
-        self.info = tk.Label(win, text="Загружаю список версий...", font=theme.font(9), fg=MUTED,
-                             bg=BG, anchor="w")
-        self.info.pack(fill="x", padx=18, pady=(10, 0))
+        box.AddSpacer(10)
+        self.info = theme.label(self, "Загружаю список версий...", size=9, fg=MUTED, wrap=380)
+        box.Add(self.info, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
 
-        self.install_btn = theme.primary_button(win, "УСТАНОВИТЬ", self._install)
-        self.install_btn.config(state="disabled")
-        self.install_btn.pack(fill="x", padx=18, ipady=8, pady=(16, 0))
+        box.AddSpacer(16)
+        self.install_btn = theme.primary_button(self, "УСТАНОВИТЬ", self._install,
+                                                padding=(18, 11))
+        self.install_btn.Enable(False)
+        box.Add(self.install_btn, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, PAD)
+        box.AddSpacer(PAD)
 
         self.app.run_async(available_versions, self._loaded)
 
@@ -43,30 +51,30 @@ class InstallVersionDialog(Dialog):
         if not self.alive():
             return
         if error:
-            self.info.config(text=f"Ошибка загрузки: {error}")
+            self.info.set_text(f"Ошибка загрузки: {error}")
+            self.Layout()
             return
         self._all = versions
         self._apply_filter()
-        self.info.config(text=f"Доступно версий: {len(versions)}")
-        self.install_btn.config(state="normal")
+        self.info.set_text(f"Доступно версий: {len(versions)}")
+        self.install_btn.Enable(True)
+        self.Layout()
 
     def _apply_filter(self):
         if not self.alive():
             return
         items = [(i, t) for i, t in self._all
-                 if not self.only_release.get() or t == "release"]
+                 if not self.only_release.GetValue() or t == "release"]
         items.sort(key=lambda x: sort_key(x[0]), reverse=True)
         self._ids = [i for i, _t in items]
         labels = [self.app.versions.label(i, self.app.settings["loader"]) for i in self._ids]
-        self.combo["values"] = labels
-        if labels:
-            self.var.set(labels[0])
+        self.combo.set_items(labels, selection=0)
 
     def _install(self):
-        label = self.var.get()
+        label = self.combo.get_value()
         if not label:
             return
-        index = self.combo.current()
+        index = self.combo.get_selection()
         version = self._ids[index] if 0 <= index < len(self._ids) else \
             self.app.versions.id_from_label(label)
         self.close()

@@ -58,10 +58,11 @@ def save_skin(src):
     if Image is not None:
         Image.open(src).convert("RGBA").resize((64, 64), Image.LANCZOS).save(SKIN_PATH, "PNG")
         return SKIN_PATH
-    if not src.lower().endswith(".png"):
-        raise RuntimeError("Для этого формата нужна библиотека Pillow")
-    import tkinter as tk
-    tk.PhotoImage(file=src).write(SKIN_PATH, format="png")
+    import wx
+    image = wx.Image(src)
+    if not image.IsOk():
+        raise RuntimeError("Не удалось прочитать изображение")
+    image.Rescale(64, 64, wx.IMAGE_QUALITY_HIGH).SaveFile(SKIN_PATH, wx.BITMAP_TYPE_PNG)
     return SKIN_PATH
 
 
